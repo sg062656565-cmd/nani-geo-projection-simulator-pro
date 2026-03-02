@@ -1,0 +1,67 @@
+
+import { GoogleGenAI } from "@google/genai";
+import { ProjectionType } from '../types';
+
+let aiInstance: GoogleGenAI | null = null;
+
+const getAI = () => {
+  if (!aiInstance && process.env.API_KEY) {
+    aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  }
+  return aiInstance;
+};
+
+export const streamProjectionExplanation = async (
+  projection: ProjectionType,
+  userQuestion: string | null,
+  onChunk: (text: string) => void
+) => {
+  const ai = getAI();
+  if (!ai) {
+    onChunk("⚠️ 請確保 API Key 已正確設定，以便 Professor AI 為您服務。");
+    return;
+  }
+
+  const model = "gemini-3-flash-preview";
+  
+  const systemInstruction = `
+    你是一位專業且熱情的「高中地理科老師」。
+    你正在帶領學生使用一個「互動式投影模擬器」。
+    目前模擬器正在顯示的投影法是：${projection}。
+    你的任務是解答學生關於地理、地圖、投影幾何、經緯網以及空間變形的任何疑問。
+    
+    規則：
+    1. 語氣要專業但親切，像在教室裡對學生講話。
+    2. 若是學生問一般問題，請儘量連結到當前的投影法特性。
+    3. 使用 Markdown 格式。
+    4. 回答要簡潔有力，適合在側邊欄閱讀（約 150 字以內）。
+    5. 如果學生問到與地理無關的問題，請禮貌地導回地理教學主題。
+  `;
+
+  let prompt = "";
+  if (userQuestion) {
+    prompt = userQuestion;
+  } else {
+    prompt = `老師，請幫我介紹一下 ${projection} 這個投影法的核心幾何原理、主要的變形情況（面積或角度），以及在現實生活中我們什麼時候會用到它？`;
+  }
+
+  try {
+    const response = await ai.models.generateContentStream({
+      model: model,
+      contents: prompt,
+      config: {
+        systemInstruction: systemInstruction,
+        temperature: 0.7,
+      }
+    });
+
+    for await (const chunk of response) {
+      if (chunk.text) {
+        onChunk(chunk.text);
+      }
+    }
+  } catch (error) {
+    console.error("Gemini Error:", error);
+    onChunk("\n\n(抱歉，我的大腦突然有點斷線，請再試一次或重新整理介面。)");
+  }
+};
